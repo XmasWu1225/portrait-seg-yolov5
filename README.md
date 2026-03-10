@@ -43,6 +43,70 @@ portrait_seg_yolov5/
 pip install -r requirements.txt
 ```
 
+## 模型支持
+
+本项目支持两种模型格式：
+
+### 1. PyTorch模型（默认）
+- **文件格式**：`.pt` 或 `.pth`
+- **优点**：易于调试和修改
+- **缺点**：依赖完整PyTorch安装
+- **适用场景**：开发、实验、快速迭代
+
+### 2. ONNX模型（推荐用于生产）
+- **文件格式**：`.onnx`
+- **优点**：
+  - 更快的推理速度
+  - 更小的依赖（只需onnxruntime）
+  - 更好的跨平台兼容性
+  - 适合生产环境部署
+- **缺点**：需要模型转换
+- **适用场景**：生产部署、边缘设备、实时应用
+
+### 切换模型格式
+
+在 `config.py` 中设置：
+```python
+# 使用ONNX模型
+USE_ONNX = True
+YOLOV5_SEG_MODEL_PATH = 'yolov5s-seg.onnx'
+
+# 或使用PyTorch模型
+USE_ONNX = False
+YOLOV5_SEG_MODEL_PATH = 'yolov5s-seg.pt'
+```
+
+### 获取ONNX模型
+
+#### 方法1：从PyTorch转换
+```python
+import torch
+from models.yolov5_seg_detector import YOLOv5SegDetector
+
+# 加载PyTorch模型
+detector = YOLOv5SegDetector(use_onnx=False)
+
+# 转换为ONNX
+dummy_input = torch.randn(1, 3, 640, 640)
+torch.onnx.export(
+    detector.model,
+    dummy_input,
+    "yolov5s-seg.onnx",
+    input_names=['images'],
+    output_names=['output0', 'output1'],
+    dynamic_axes={
+        'images': {0: 'batch_size', 2: 'height', 3: 'width'}
+    }
+)
+```
+
+#### 方法2：下载预训练的ONNX模型
+可以从以下来源下载预训练的ONNX模型：
+- [ONNX Model Zoo](https://github.com/onnx/models)
+- [Ultralytics ONNX Export](https://github.com/ultralytics/yolov5/issues/252)
+
+详细说明请参考 [ONNX_GUIDE.md](ONNX_GUIDE.md)
+
 ## 下载模型
 
 首次运行时，程序会自动从Ultralytics下载YOLOv5-seg模型。也可以手动下载：

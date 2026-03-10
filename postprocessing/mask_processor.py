@@ -15,24 +15,29 @@ class MaskProcessor:
         self.blur_sigma = Config.GAUSSIAN_BLUR_SIGMA
     
     def process_mask(self, mask: np.ndarray, target_size: tuple = None) -> np.ndarray:
-        if mask is None:
-            return None
+        if mask is None: return None
         
-        if mask.dtype != np.float32:
-            mask = mask.astype(np.float32)
+        # 1. 此时 mask 是 160x160 (模型原始输出分辨率)
+        # 在这个极小的分辨率下做填充和扩张，速度极快！
+        mask_uint8 = (mask > self.threshold).astype(np.uint8) * 255
         
-        mask = (mask > self.threshold).astype(np.float32)
+        # 小图填充
+        contours, _ = cv2.findContours(mask_uint8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        cv2.drawContours(mask_uint8, contours, -1, 255, -1)
         
-        mask = cv2.GaussianBlur(mask, self.blur_kernel, self.blur_sigma)
+        # 小图扩张
+        kernel_dilate = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)) # 核也要变小
+        mask_uint8 = cv2.dilate(mask_uint8, kernel_dilate, iterations=1)
         
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-        
+        # 2. 放大到目标尺寸
         if target_size is not None:
-            mask = cv2.resize(mask, target_size)
+            mask_uint8 = cv2.resize(mask_uint8, target_size, interpolation=cv2.INTER_LINEAR)
         
-        return mask
+        # 3. 最后在大图上做一次轻微模糊
+        mask_float = mask_uint8.astype(np.float32) / 255.0
+        mask_final = cv2.GaussianBlur(mask_float, (15, 15), 3.0)
+        
+        return mask_final
     
     def refine_mask_edges(self, mask: np.ndarray, image: np.ndarray) -> np.ndarray:
         if mask is None:

@@ -15,6 +15,11 @@ from config import Config
 
 class PortraitSegmentationApp:
     def __init__(self, background_path: str = None):
+        # 1. 先初始化配置参数
+        self.output_width = Config.OUTPUT_WIDTH
+        self.output_height = Config.OUTPUT_HEIGHT
+        
+        # 2. 再初始化各个组件
         self.detector = YOLOv5SegDetector()
         self.preprocessor = ImagePreprocessor()
         self.mask_processor = MaskProcessor()
@@ -22,11 +27,9 @@ class PortraitSegmentationApp:
         self.blender = Blender()
         self.fps_counter = FPSCounter()
         
+        # 3. 最后加载背景（此时 output_width/height 已经存在）
         self.background = self._load_background(background_path)
-        
-        self.output_width = Config.OUTPUT_WIDTH
-        self.output_height = Config.OUTPUT_HEIGHT
-    
+
     def _load_background(self, background_path: str) -> np.ndarray:
         if background_path and Path(background_path).exists():
             try:
@@ -39,30 +42,46 @@ class PortraitSegmentationApp:
         print("Using default solid background")
         return create_solid_background(self.output_width, self.output_height)
     
-    def process_frame(self, frame: np.ndarray) -> np.ndarray:
+    def process_frame(self, frame: np.ndarray, use_blur: bool = False) -> np.ndarray:
+        # 1. 预处理
         img_rgb = self.preprocessor.preprocess_for_model(frame)
+        img_normalized = self.preprocessor.preprocess_for_display(frame)
         
+        # 2. 获取掩码
         person_mask = self.detector.get_person_mask(frame)
         
         if person_mask is None:
+            # 没检测到人时，如果不开启虚化则返回原图，开启了虚化则返回全图模糊
+            if use_blur:
+                ksize = Config.BACKGROUND_BLUR_STRENGTH
+                return self.blender.prepare_output(cv2.GaussianBlur(img_normalized, (ksize, ksize), 0))
             return frame
         
+        # 3. 处理掩码
         processed_mask = self.mask_processor.process_mask(
             person_mask, 
             target_size=(self.output_width, self.output_height)
         )
         
-        img_normalized = self.preprocessor.preprocess_for_display(frame)
+        # 4. 确定背景：是使用静态背景图片，还是当前帧的模糊版本
+        if use_blur:
+            small_img = cv2.resize(img_normalized, (0, 0), fx=0.25, fy=0.25)
+            small_blur = cv2.GaussianBlur(small_img, (9, 9), 0) # 缩小了，卷积核也可以相应减小
+            dynamic_background = cv2.resize(small_blur, (self.output_width, self.output_height))
+        else:
+            dynamic_background = self.background
         
+        # 5. 合成
         result = self.filter_processor.apply_filter(
-            img_normalized, processed_mask, self.background
+            img_normalized, processed_mask, dynamic_background
         )
         
+        # 6. 转换输出格式
         result = self.blender.prepare_output(result)
         
         return result
-    
-    def run_webcam(self):
+
+    def run_webcam(self, use_blur: bool = False): # 添加参数
         cap = cv2.VideoCapture(0)
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, Config.CAMERA_WIDTH)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, Config.CAMERA_HEIGHT)
@@ -85,7 +104,7 @@ class PortraitSegmentationApp:
                 break
             
             start_time = time.time()
-            result = self.process_frame(frame)
+            result = self.process_frame(frame, use_blur=use_blur) # 传递参数
             process_time = time.time() - start_time
             
             fps = self.fps_counter.update()
@@ -116,29 +135,33 @@ class PortraitSegmentationApp:
         cap.release()
         cv2.destroyAllWindows()
     
-    def run_image(self, image_path: str, output_path: str = None):
+    def run_image(self, image_path: str, output_path: str = None, use_blur: bool = False): # 添加参数
         frame = cv2.imread(image_path)
         if frame is None:
             print(f"Failed to load image: {image_path}")
             return
-        
+         # --- 增加暖身环节 ---
+        print("Warming up...")
+        for _ in range(5):
+            _ = self.process_frame(frame, use_blur=use_blur)
+
         print(f"Processing image: {image_path}")
         start_time = time.time()
-        result = self.process_frame(frame)
+        result = self.process_frame(frame, use_blur=use_blur) # 传递参数
         process_time = time.time() - start_time
         
-        print(f"Processing time: {process_time:.4f} seconds")
+        print(f"Actual inference + post-processing time: {process_time:.4f} seconds")
         
         if output_path:
             cv2.imwrite(output_path, result)
             print(f"Result saved to: {output_path}")
         
-        cv2.imshow('Portrait Segmentation', result)
-        print("Press any key to close...")
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
+        # cv2.imshow('Portrait Segmentation', result)
+        # print("Press any key to close...")
+        # cv2.waitKey(0)
+        # cv2.destroyAllWindows()
     
-    def run_video(self, video_path: str, output_path: str = None):
+    def run_video(self, video_path: str, output_path: str = None, use_blur: bool = False): # 添加参数
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
             print(f"Failed to open video: {video_path}")
@@ -162,18 +185,20 @@ class PortraitSegmentationApp:
             if not ret:
                 break
             
-            result = self.process_frame(frame)
+            result = self.process_frame(frame, use_blur=use_blur) # 传递参数
             
             if output_path:
                 out.write(result)
             
-            cv2.imshow('Portrait Segmentation', result)
+            # --- 修改这里：在服务器上不显示 ---
+            # cv2.imshow('Portrait Segmentation', result)
             
             frame_idx += 1
-            print(f"Processing frame {frame_idx}/{frame_count}", end='\r')
-            
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
+            if frame_idx % 10 == 0: # 减少打印频率
+                print(f"Processing frame {frame_idx}/{frame_count}", end='\r')
+
+            # if cv2.waitKey(1) & 0xFF == ord('q'):
+            #     break
         
         cap.release()
         if output_path:
@@ -194,23 +219,12 @@ class PortraitSegmentationApp:
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description='Portrait Segmentation with YOLOv5-Seg',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-示例:
-  python main.py --mode webcam --background backgrounds/beach.jpg
-  python main.py --mode image --input test_images/person.jpg --output result.jpg
-  python main.py --mode video --input input.mp4 --output output.mp4
-        """
-    )
-    
-    parser.add_argument('--mode', type=str, default='webcam', 
-                       choices=['webcam', 'image', 'video'],
-                       help='运行模式: webcam(摄像头), image(图片), video(视频)')
-    parser.add_argument('--input', type=str, help='输入文件路径')
-    parser.add_argument('--output', type=str, help='输出文件路径')
-    parser.add_argument('--background', type=str, help='背景图片路径')
+    parser = argparse.ArgumentParser(description='Portrait Segmentation')
+    parser.add_argument('--mode', type=str, default='webcam', choices=['webcam', 'image', 'video'])
+    parser.add_argument('--input', type=str)
+    parser.add_argument('--output', type=str)
+    parser.add_argument('--background', type=str)
+    parser.add_argument('--blur', action='store_true', help='Use background blur instead of replacement') # 确保这一行存在
     
     args = parser.parse_args()
     
@@ -218,25 +232,16 @@ def main():
         app = PortraitSegmentationApp(background_path=args.background)
         
         if args.mode == 'webcam':
-            app.run_webcam()
+            app.run_webcam(use_blur=args.blur)
         elif args.mode == 'image':
-            if not args.input:
-                print("错误: 请指定输入图片路径 (--input)")
-                return
-            app.run_image(args.input, args.output)
+            if not args.input: return
+            app.run_image(args.input, args.output, use_blur=args.blur) # 这里的调用现在匹配定义了
         elif args.mode == 'video':
-            if not args.input:
-                print("错误: 请指定输入视频路径 (--input)")
-                return
-            app.run_video(args.input, args.output)
-    
-    except KeyboardInterrupt:
-        print("\n程序被用户中断")
+            if not args.input: return
+            app.run_video(args.input, args.output, use_blur=args.blur)
+            
     except Exception as e:
-        print(f"错误: {e}")
-        import traceback
-        traceback.print_exc()
-
+        print(f"Error: {e}")
 
 if __name__ == '__main__':
     main()

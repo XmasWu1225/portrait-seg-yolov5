@@ -4,7 +4,7 @@ import torch
 class Config:
     DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
     
-    YOLOV5_SEG_MODEL_PATH = 'yolov5s-seg.pt'
+    YOLOV5_SEG_MODEL_PATH = '/hdd_data/aaod/project/portrait_seg_yolov5/models/yolov5n-seg.onnx'
     YOLOV5_SEG_CONFIDENCE = 0.5
     YOLOV5_SEG_IOU = 0.45
     YOLOV5_SEG_IMAGE_SIZE = 640
@@ -12,7 +12,7 @@ class Config:
     PERSON_CLASS_ID = 0
     
     MASK_THRESHOLD = 0.5
-    GAUSSIAN_BLUR_KERNEL = (7, 7)
+    GAUSSIAN_BLUR_KERNEL = (21, 21)
     GAUSSIAN_BLUR_SIGMA = 1.0
     
     MULTI_PERSON_STRATEGY = 'merge'
@@ -37,3 +37,11 @@ class Config:
     OUTPUT_PATH = './output'
     
     DEBUG_MODE = False
+    
+    USE_ONNX = True
+    ONNX_INPUT_NAME = 'images'
+    ONNX_OUTPUT_BOXES = 'output0'
+    ONNX_OUTPUT_MASKS = 'output1'
+
+        # 在 Config 类中添加
+    BACKGROUND_BLUR_STRENGTH = 25  # 模糊核大小，必须是奇数

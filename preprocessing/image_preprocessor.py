@@ -35,7 +35,8 @@ class ImagePreprocessor:
         return image
     
     def preprocess_for_display(self, image: np.ndarray) -> np.ndarray:
-        image = self.preprocess(image)
+        image = self.preprocess(image)  # 处理通道数
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB) # <-- 必须添加这一行，转为 RGB
         image = self.normalize_image(image)
         image = self.resize_image(image)
         return image

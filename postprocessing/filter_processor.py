@@ -30,9 +30,16 @@ class FilterProcessor:
     
     def alpha_blend(self, foreground: np.ndarray, mask: np.ndarray, 
                    background: np.ndarray) -> np.ndarray:
-        mask = mask.reshape(mask.shape[0], mask.shape[1], 1)
-        result = (foreground * mask) + (background * (1 - mask))
-        return np.clip(result, 0, 1)
+        # 这种写法在 Numpy 中会创建多个中间变量，占用内存和时间
+        # mask = mask.reshape(mask.shape[0], mask.shape[1], 1)
+        # return (foreground * mask) + (background * (1 - mask))
+        
+        # 优化写法：原地运算或减少乘法
+        if len(mask.shape) == 2:
+            mask = mask[:, :, np.newaxis]
+        
+        # 只需要一次减法和两次乘法
+        return background + (foreground - background) * mask
     
     def smooth_step(self, edge0: float, edge1: float, x: np.ndarray) -> np.ndarray:
         x = np.clip((x - edge0) / (edge1 - edge0), 0.0, 1.0)
